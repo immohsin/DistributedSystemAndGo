@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	)	//by Yan
+	)	// By Yan
 
 import "container/list"
 
@@ -18,7 +18,7 @@ import "container/list"
 // value should be a list of key/value pairs, each represented
 // by a mapreduce.KeyValue.
 func Map(value string) *list.List {
-	//by Yan
+	// By Yan
 	l := list.New()
 	f := func(c rune) bool {
 		return !unicode.IsLetter(c)
@@ -30,7 +30,7 @@ func Map(value string) *list.List {
 		kv.Value = "1"
 		l.PushBack(kv)
 	}
-	
+
 	return l
 }
 
@@ -38,7 +38,7 @@ func Map(value string) *list.List {
 // of that key's string value. should return a single
 // output value for that key.
 func Reduce(key string, values *list.List) string {
-	//by Yan
+	// By Yan
 	count := 0
 	length := values.Len();
 	for i := 0; i < length; i++ {

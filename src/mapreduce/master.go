@@ -30,5 +30,43 @@ func (mr *MapReduce) KillWorkers() *list.List {
 
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
+	// By Yan
+	var sem = make(chan *Worker, len(mr.Workers))
+	// push all registered workers into our semaphore
+	for _, wr := range mr.Workers {
+		sem <- wr
+	}
+	for i := 0; i < mr.nMap; i++ {
+		wr := <-sem
+		go func() {
+			args := &DoJobArgs{}
+			args.File = mr.file
+			args.Operation = Map
+			args.JobNumber = i
+			args.NumOtherPhase =  mr.nReduce
+			var reply DoJobReply
+			ok := call(wr.address, "Worker.DoJob", args, &reply)
+			if ok == false {
+				fmt.Printf("Map: RPC %s register error\n", wr.address)
+			}
+			sem <- wr
+		}()
+	}
+	for i := 0; i < mr.nReduce; i++ {
+		wr := <-sem
+		go func() {
+			args := &DoJobArgs{}
+			args.File = mr.file
+			args.Operation = Reduce
+			args.JobNumber = i
+			args.NumOtherPhase =  mr.nMap 
+			var reply DoJobReply
+			ok := call(wr.address, "Worker.DoJob", args, &reply)
+			if ok == false {
+				fmt.Printf("Deduce: RPC %s register error\n", wr.address)
+			}
+			sem <- wr
+		}()
+	} 
 	return mr.KillWorkers()
 }
