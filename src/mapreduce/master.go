@@ -3,7 +3,7 @@ package mapreduce
 import "container/list"
 import "fmt"
 import "sync"
-import "log"
+//import "log"
 
 type WorkerInfo struct {
 	address string
@@ -33,14 +33,12 @@ func (mr *MapReduce) RunMaster() *list.List {
 	// By Yan
 	var wg sync.WaitGroup
 
-	log.Printf("nMap is %d\n", mr.nMap)
 	wg.Add(mr.nMap)
 	for i := 0; i < mr.nMap; i++ {
 		wrName := <-mr.registerChannel
 		i := i
 		go func() {
-			log.Printf("i is %d\n", i)
-			defer wg.Done()
+			//defer wg.Done()
 			args := &DoJobArgs{}
 			args.File = mr.file
 			args.Operation = Map
@@ -52,18 +50,18 @@ func (mr *MapReduce) RunMaster() *list.List {
 			if ok == false {
 				fmt.Printf("Map: RPC %s register error\n", wrName)
 			}
+			wg.Done()
 			mr.registerChannel <- wrName
 		}()
 	}
-	log.Printf("wait\n")
 	wg.Wait()
-	log.Printf("pass wait\n")
 
 	wg.Add(mr.nReduce)
 	for i := 0; i < mr.nReduce; i++ {
 		wrName := <-mr.registerChannel
+		i := i
 		go func() {
-			defer wg.Done()
+			//defer wg.Done()
 			args := &DoJobArgs{}
 			args.File = mr.file
 			args.Operation = Reduce
@@ -74,6 +72,7 @@ func (mr *MapReduce) RunMaster() *list.List {
 			if ok == false {
 				fmt.Printf("Deduce: RPC %s register error\n", wrName)
 			}
+			wg.Done()
 			mr.registerChannel <- wrName
 		}()
 	}
