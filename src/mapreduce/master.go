@@ -31,20 +31,15 @@ func (mr *MapReduce) KillWorkers() *list.List {
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
 	// By Yan
-	var sem = make(chan *WorkerInfo, len(mr.Workers))
 	var wg sync.WaitGroup
-	//var semReduce = make(chan *WorkerInfo, len(mr.Workers))
-	// push all registered workers into our semaphore
-	for _, wr := range mr.Workers {
-		sem <- wr
-	}
 
-	log.Printf("inserted all semphores\n")
-
+	log.Printf("nMap is %d\n", mr.nMap)
 	wg.Add(mr.nMap)
 	for i := 0; i < mr.nMap; i++ {
-		wr := <-sem
+		wrName := <-mr.registerChannel
+		i := i
 		go func() {
+			log.Printf("i is %d\n", i)
 			defer wg.Done()
 			args := &DoJobArgs{}
 			args.File = mr.file
@@ -52,22 +47,21 @@ func (mr *MapReduce) RunMaster() *list.List {
 			args.JobNumber = i
 			args.NumOtherPhase = mr.nReduce
 			var reply DoJobReply
-			ok := call(wr.address, "Worker.DoJob", args, &reply)
+
+			ok := call(wrName, "Worker.DoJob", args, &reply)
 			if ok == false {
-				fmt.Printf("Map: RPC %s register error\n", wr.address)
+				fmt.Printf("Map: RPC %s register error\n", wrName)
 			}
-			//if len(semMap) >= mr.nMap-(i+1) {
-			//	semReduce <- wr
-			//} else {
-			sem <- wr
-			//}
+			mr.registerChannel <- wrName
 		}()
 	}
+	log.Printf("wait\n")
 	wg.Wait()
+	log.Printf("pass wait\n")
 
 	wg.Add(mr.nReduce)
 	for i := 0; i < mr.nReduce; i++ {
-		wr := <-sem
+		wrName := <-mr.registerChannel
 		go func() {
 			defer wg.Done()
 			args := &DoJobArgs{}
@@ -76,11 +70,11 @@ func (mr *MapReduce) RunMaster() *list.List {
 			args.JobNumber = i
 			args.NumOtherPhase = mr.nMap
 			var reply DoJobReply
-			ok := call(wr.address, "Worker.DoJob", args, &reply)
+			ok := call(wrName, "Worker.DoJob", args, &reply)
 			if ok == false {
-				fmt.Printf("Deduce: RPC %s register error\n", wr.address)
+				fmt.Printf("Deduce: RPC %s register error\n", wrName)
 			}
-			sem <- wr
+			mr.registerChannel <- wrName
 		}()
 	}
 	wg.Wait()
