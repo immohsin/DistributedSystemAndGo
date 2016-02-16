@@ -31,14 +31,27 @@ func (mr *MapReduce) KillWorkers() *list.List {
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
 	// By Yan
-	var wg sync.WaitGroup
-
-	wg.Add(mr.nMap)
+	var wg sync.WaitGroup	
+	done := make(chan struct{})
+	
+	/*for {
+		select {
+			case register := <- mr.registerChannel :
+				_, exist := mr.Workers[register]
+				if !exist {
+					var wi WorkerInfo
+					wi.address = register
+					mr.Workers[register] = &wi
+				}
+			case worket := <- workerChannel :
+		}
+	}*/
+		
+	wg.Add(mr.nMap)	
 	for i := 0; i < mr.nMap; i++ {
 		wrName := <-mr.registerChannel
 		i := i
 		go func() {
-			//defer wg.Done()
 			args := &DoJobArgs{}
 			args.File = mr.file
 			args.Operation = Map
@@ -51,7 +64,11 @@ func (mr *MapReduce) RunMaster() *list.List {
 				fmt.Printf("Map: RPC %s register error\n", wrName)
 			}
 			wg.Done()
-			mr.registerChannel <- wrName
+			select {
+				case mr.registerChannel <- wrName:
+				case <-done:
+					return
+			}
 		}()
 	}
 	wg.Wait()
@@ -61,21 +78,26 @@ func (mr *MapReduce) RunMaster() *list.List {
 		wrName := <-mr.registerChannel
 		i := i
 		go func() {
-			//defer wg.Done()
+			defer wg.Done()
 			args := &DoJobArgs{}
 			args.File = mr.file
 			args.Operation = Reduce
 			args.JobNumber = i
 			args.NumOtherPhase = mr.nMap
 			var reply DoJobReply
+			
 			ok := call(wrName, "Worker.DoJob", args, &reply)
 			if ok == false {
 				fmt.Printf("Deduce: RPC %s register error\n", wrName)
 			}
-			wg.Done()
-			mr.registerChannel <- wrName
+			select {
+				case mr.registerChannel <- wrName:
+				case <-done:
+					return
+			}
 		}()
 	}
+	close(done)
 	wg.Wait()
 
 	return mr.KillWorkers()
