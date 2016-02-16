@@ -8,4 +8,7 @@ This project is broken down into many phases and I will update my current progre
 1. MapReduce:
     1. implement Map and Reduce function for Word Count problem     - Pass
     2. implement Master for distributing MapReduce jobs             - Pass
-    3. handle worker failures										- InProgress
+    3. handle worker failures										- Pass
+2. Primary/Backup Key/Value Service:
+	1. The Viewservice												- InProgress
+	2. The primary/backup key/value service
