@@ -16,8 +16,12 @@ type ViewServer struct {
 	rpccount int32 // for testing
 	me       string
 
-
 	// Your declarations here.
+	curView      View
+	nextView     View
+	curViewAcked bool
+	cntPrimary   int
+	cntBackup    int
 }
 
 //
@@ -26,6 +30,47 @@ type ViewServer struct {
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 
 	// Your code here.
+	// By Yan
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+
+	if atomic.LoadInt32(&vs.cntBackup) >= 5 {
+		atomic.StoreInt32(&vs.cntPrimary, 0)
+		vs.nextView.Backup = nil
+		vs.nextView.Viewnum++
+	}
+	if atomic.LoadInt32(&vs.cntPrimary) >= 5 {
+		atomic.StoreInt32(&vs.cntPrimary, 0)
+		vs.nextView.Primary = vs.nextView.Backup
+		vs.nextView.Viewnum++
+	}
+	if vs.curView.Primary == nil {
+		vs.nextViewAcked = false
+		vs.nextView.Viewnum++
+		vs.nextView.Primary = args.Me
+		atomic.StoreInt32(&vs.cntPrimary, 0)
+		if vs.curView.Viewnum == 1 {
+			vs.nextViewAcked = true
+		}
+	} else if vs.curView.Backup == nil && vs.curView.Primary != args.Me {
+		vs.nextView = vs.curView
+		vs.nextView.Viewnum++
+		vs.nextView.Backup = args.Me
+		atomic.StoreInt32(&vs.cntPrimary, 0)
+	} else if vs.curView.Primary == args.Me {
+		atomic.StoreInt32(&vs.cntPrimary, 0)
+		if vs.curView.Viewnum == args.Viewnum {
+			vs.curViewAcked = true
+		}
+	} else if vs.curView.Backup == args.Me {
+		atomic.StoreInt32(&vs.cntBackup, 0)
+	}
+
+	if vs.curViewAcked {
+		vs.curView = vs.nextView
+		vs.curViewAcked = false
+	}
+	reply.View = vs.curView
 
 	return nil
 }
@@ -40,7 +85,6 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 	return nil
 }
 
-
 //
 // tick() is called once per PingInterval; it should notice
 // if servers have died or recovered, and change the view
@@ -49,6 +93,9 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 func (vs *ViewServer) tick() {
 
 	// Your code here.
+	// By Yan
+	atomic.AddInt32(&vs.cntPrimary, 1)
+	atomic.AddInt32(&vs.cntBackup, 1)
 }
 
 //
@@ -77,6 +124,14 @@ func StartServer(me string) *ViewServer {
 	vs := new(ViewServer)
 	vs.me = me
 	// Your vs.* initializations here.
+	// By yan
+	vs.curView.Primary = nil
+	vs.curView.Backup = nil
+	vs.curView.Viewnum = 0
+	vs.nextView = vs.curView
+	vs.curViewAcked = false
+	vs.cntPrimary = 0
+	vs.cntBackup = 0
 
 	// tell net/rpc about our RPC server and handlers.
 	rpcs := rpc.NewServer()
