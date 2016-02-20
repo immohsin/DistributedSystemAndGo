@@ -19,9 +19,9 @@ type ViewServer struct {
 	// Your declarations here.
 	curView      View
 	nextView     View
-	curViewAcked bool
-	cntPrimary   int
-	cntBackup    int
+	primaryAcked bool
+	backupAcked  bool
+	timeTable    map[string]time.Time
 }
 
 //
@@ -34,21 +34,10 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
-	if atomic.LoadInt32(&vs.cntBackup) >= 5 {
-		atomic.StoreInt32(&vs.cntPrimary, 0)
-		vs.nextView.Backup = nil
-		vs.nextView.Viewnum++
-	}
-	if atomic.LoadInt32(&vs.cntPrimary) >= 5 {
-		atomic.StoreInt32(&vs.cntPrimary, 0)
-		vs.nextView.Primary = vs.nextView.Backup
-		vs.nextView.Viewnum++
-	}
 	if vs.curView.Primary == nil {
 		vs.nextViewAcked = false
 		vs.nextView.Viewnum++
 		vs.nextView.Primary = args.Me
-		atomic.StoreInt32(&vs.cntPrimary, 0)
 		if vs.curView.Viewnum == 1 {
 			vs.nextViewAcked = true
 		}
@@ -56,19 +45,39 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 		vs.nextView = vs.curView
 		vs.nextView.Viewnum++
 		vs.nextView.Backup = args.Me
-		atomic.StoreInt32(&vs.cntPrimary, 0)
 	} else if vs.curView.Primary == args.Me {
-		atomic.StoreInt32(&vs.cntPrimary, 0)
+		vs.timeTable[args.Me] = time.Now()
 		if vs.curView.Viewnum == args.Viewnum {
-			vs.curViewAcked = true
+			vs.primaryAcked = true
+		} else {
+			if vs.nextView == nil {
+				vs.nextView = vs.curView
+				vs.nextView.Backup = args.Me
+				vs.nextView.Viewnum++
+			} else {
+				vs.nextView.
+			}
 		}
 	} else if vs.curView.Backup == args.Me {
-		atomic.StoreInt32(&vs.cntBackup, 0)
+		vs.timeTable[args.Me] = time.Now()
+		if vs.curView.Viewnum == args.Viewnum {
+
+		} else {
+			if vs.nextView == nil {
+				vs.nextView = vs.curView
+				vs.nextView.Backup = args.Me
+				vs.nextView.Viewnum++
+			} else {
+				vs.nextView.
+			}
+
+		}
 	}
 
 	if vs.curViewAcked {
 		vs.curView = vs.nextView
 		vs.curViewAcked = false
+		vs.nextView = nil
 	}
 	reply.View = vs.curView
 
@@ -94,8 +103,27 @@ func (vs *ViewServer) tick() {
 
 	// Your code here.
 	// By Yan
-	atomic.AddInt32(&vs.cntPrimary, 1)
-	atomic.AddInt32(&vs.cntBackup, 1)
+	//atomic.AddInt32(&vs.cntPrimary, 1)
+	//atomic.AddInt32(&vs.cntBackup, 1)
+
+	// Primary dead, Backup alive
+	// Primary alive, Backup dead
+	// Primary and Backup dead
+	timediff := vs.timeTable[vs.curView.Backup] - time.Now()
+	if timediff >= DeadPings*PingInterval {
+		//Backup dead
+		vs.nextView = vs.curView
+		vs.nextView.Backup = nil
+		vs.nextView.Viewnum++
+	}
+	timediff = vs.timeTable[vs.curView.Primary] - time.Now()
+	if timediff >= DeadPings*PingInterval {
+		//Primary dead
+		vs.nextView = vs.curView
+		vs.nextView.Primary = vs.nextView.Backup
+		vs.nextView.Viewnum++
+	}
+
 }
 
 //
@@ -132,6 +160,7 @@ func StartServer(me string) *ViewServer {
 	vs.curViewAcked = false
 	vs.cntPrimary = 0
 	vs.cntBackup = 0
+	vs.timeTable = make(map[string]time.Time)
 
 	// tell net/rpc about our RPC server and handlers.
 	rpcs := rpc.NewServer()
