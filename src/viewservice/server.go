@@ -17,11 +17,12 @@ type ViewServer struct {
 	me       string
 
 	// Your declarations here.
-	curView      View
-	nextView     View
-	primaryAcked bool
-	backupAcked  bool
-	timeTable    map[string]time.Time
+	curView                View
+	nextView               View
+	primaryAcked           bool
+	nextViewExists         bool
+	primaryFailureDetected bool
+	timeTable              map[string]time.Time
 }
 
 //
@@ -34,52 +35,52 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
-	if vs.curView.Primary == nil {
-		vs.nextViewAcked = false
-		vs.nextView.Viewnum++
-		vs.nextView.Primary = args.Me
-		if vs.curView.Viewnum == 1 {
-			vs.nextViewAcked = true
-		}
-	} else if vs.curView.Backup == nil && vs.curView.Primary != args.Me {
+	vs.timeTable[args.Me] = time.Now()
+
+	if vs.curView.Primary == "" {
+		vs.curView.Primary = args.Me
+		vs.curView.Viewnum++
+	} else if vs.curView.Backup == "" && vs.curView.Primary != args.Me {
 		vs.nextView = vs.curView
-		vs.nextView.Viewnum++
 		vs.nextView.Backup = args.Me
+		vs.nextViewExists = true
 	} else if vs.curView.Primary == args.Me {
-		vs.timeTable[args.Me] = time.Now()
 		if vs.curView.Viewnum == args.Viewnum {
 			vs.primaryAcked = true
-		} else {
-			if vs.nextView == nil {
+			if !vs.nextViewExists {
 				vs.nextView = vs.curView
-				vs.nextView.Backup = args.Me
-				vs.nextView.Viewnum++
 			} else {
-				vs.nextView.
+				vs.nextView.Viewnum++
+			}
+		} else {
+			if !vs.primaryFailureDetected {
+				vs.curView.Primary = vs.curView.Backup
+				vs.curView.Backup = ""
+				vs.curView.Viewnum++
+			} else {
+				vs.primaryFailureDetected = false
 			}
 		}
 	} else if vs.curView.Backup == args.Me {
-		vs.timeTable[args.Me] = time.Now()
 		if vs.curView.Viewnum == args.Viewnum {
 
 		} else {
-			if vs.nextView == nil {
+			/*if vs.nextView == nil {
 				vs.nextView = vs.curView
-				vs.nextView.Backup = args.Me
-				vs.nextView.Viewnum++
-			} else {
-				vs.nextView.
-			}
-
+				vs.nextView.Backup = ""
+			}*/
 		}
 	}
 
-	if vs.curViewAcked {
+	if vs.primaryAcked {
 		vs.curView = vs.nextView
-		vs.curViewAcked = false
-		vs.nextView = nil
+		vs.primaryAcked = false
+		vs.nextViewExists = false
 	}
 	reply.View = vs.curView
+	log.Printf("reply Primary %s\n", reply.View.Primary)
+	log.Printf("reply Backup %s\n", reply.View.Backup)
+	log.Printf("reply Viewnum %d\n", reply.View.Viewnum)
 
 	return nil
 }
@@ -90,6 +91,8 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
+	// By Yan
+	reply.View = vs.curView
 
 	return nil
 }
@@ -103,25 +106,29 @@ func (vs *ViewServer) tick() {
 
 	// Your code here.
 	// By Yan
-	//atomic.AddInt32(&vs.cntPrimary, 1)
-	//atomic.AddInt32(&vs.cntBackup, 1)
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
 
 	// Primary dead, Backup alive
 	// Primary alive, Backup dead
 	// Primary and Backup dead
-	timediff := vs.timeTable[vs.curView.Backup] - time.Now()
-	if timediff >= DeadPings*PingInterval {
-		//Backup dead
-		vs.nextView = vs.curView
-		vs.nextView.Backup = nil
-		vs.nextView.Viewnum++
+	if vs.curView.Backup != "" {
+		timediff := time.Since(vs.timeTable[vs.curView.Backup])
+		if timediff >= DeadPings*PingInterval {
+			//Backup dead
+			vs.nextView = vs.curView
+			vs.nextView.Backup = ""
+		}
 	}
-	timediff = vs.timeTable[vs.curView.Primary] - time.Now()
-	if timediff >= DeadPings*PingInterval {
-		//Primary dead
-		vs.nextView = vs.curView
-		vs.nextView.Primary = vs.nextView.Backup
-		vs.nextView.Viewnum++
+	if vs.curView.Primary != "" {
+		timediff := time.Since(vs.timeTable[vs.curView.Primary])
+		if timediff >= DeadPings*PingInterval {
+			//Primary dead
+			vs.primaryFailureDetected = true
+			vs.curView.Primary = vs.curView.Backup
+			vs.curView.Backup = ""
+			vs.curView.Viewnum++
+		}
 	}
 
 }
@@ -153,13 +160,13 @@ func StartServer(me string) *ViewServer {
 	vs.me = me
 	// Your vs.* initializations here.
 	// By yan
-	vs.curView.Primary = nil
-	vs.curView.Backup = nil
+	vs.curView.Primary = ""
+	vs.curView.Backup = ""
 	vs.curView.Viewnum = 0
 	vs.nextView = vs.curView
-	vs.curViewAcked = false
-	vs.cntPrimary = 0
-	vs.cntBackup = 0
+	vs.primaryAcked = false
+	vs.nextViewExists = false
+	vs.primaryFailureDetected = false
 	vs.timeTable = make(map[string]time.Time)
 
 	// tell net/rpc about our RPC server and handlers.
