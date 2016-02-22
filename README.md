@@ -6,9 +6,9 @@ The goal is to have a better understanding of mainstream distributed system conc
 This project is broken down into many phases and I will update my current progress in this ReadMe file.
 
 1. MapReduce:
-    1. implement Map and Reduce function for Word Count problem     - Pass
-    2. implement Master for distributing MapReduce jobs             - Pass
-    3. handle worker failures										- Pass
+    1. implement Map and Reduce function for Word Count problem - Pass
+    2. implement Master for distributing MapReduce jobs         - Pass
+    3. handle worker failures                                   - Pass
 2. Primary/Backup Key/Value Service:
-	1. The Viewservice												- InProgress
-	2. The primary/backup key/value service
+	1. The Viewservice                         - Pass
+	2. The primary/backup key/value Service    - InProgress
