@@ -12,8 +12,6 @@ import "os"
 import "syscall"
 import "math/rand"
 
-
-
 type PBServer struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -22,8 +20,9 @@ type PBServer struct {
 	me         string
 	vs         *viewservice.Clerk
 	// Your declarations here.
+	// By Yan
+	curView View
 }
-
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
@@ -32,15 +31,12 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	return nil
 }
 
-
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 	// Your code here.
 
-
 	return nil
 }
-
 
 //
 // ping the viewserver periodically.
@@ -51,6 +47,19 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 func (pb *PBServer) tick() {
 
 	// Your code here.
+	// By Yan
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	vx, ok := pb.vs.Get()
+	vx, ok := pb.vs.Ping(vx.Viewnum)
+
+	if pb.curView.Primary == pb.me && pb.curView.Primary != vx.Primary {
+
+	}
+	pb.curView = vx
+
+	return reply.View, nil
 }
 
 // tell the server to shut itself down.
@@ -77,7 +86,6 @@ func (pb *PBServer) setunreliable(what bool) {
 func (pb *PBServer) isunreliable() bool {
 	return atomic.LoadInt32(&pb.unreliable) != 0
 }
-
 
 func StartServer(vshost string, me string) *PBServer {
 	pb := new(PBServer)
