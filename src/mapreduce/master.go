@@ -8,6 +8,8 @@ import "sync"
 type WorkerInfo struct {
 	address string
 	// You can add definitions here.
+	// We Could mantain a state for each worker, but it does not seem
+	// necessary at this point
 }
 
 // Clean up all workers by sending a Shutdown RPC to each one of them Collect
@@ -29,6 +31,7 @@ func (mr *MapReduce) KillWorkers() *list.List {
 }
 
 func (mr *MapReduce) RunMaster() *list.List {
+	// By Yan
 	done := make(chan struct{})
 	workersChannel := make(chan string)
 	
@@ -57,6 +60,7 @@ func (mr *MapReduce) RunMaster() *list.List {
 	return mr.KillWorkers()
 }
 
+// By Yan
 func (mr *MapReduce) ScheduleMap(done <-chan struct{}, workersChannel chan string) {
 	mapTasks := make(chan int, mr.nMap)
 	mapDone := make(chan struct{})
@@ -103,6 +107,7 @@ func (mr *MapReduce) ScheduleMap(done <-chan struct{}, workersChannel chan strin
 	}
 }
 
+// By Yan
 func (mr *MapReduce) ScheduleReduce(done <-chan struct{}, workersChannel chan string) {
 	reduceTasks := make(chan int, mr.nReduce)
 	reduceDone := make(chan struct{})

@@ -22,11 +22,25 @@ type PBServer struct {
 	// Your declarations here.
 	// By Yan
 	curView View
+	db	map[string]string
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
+	// By Yan
+	if pb.me != pb.curView.Primary {
+		reply.Err = ErrWrongServer
+		return nil //errors.New("Not a Primary server")
+	}
+	
+	v, exist := pb.db[args.Key]
+	if !exist {
+		reply.Err = ErrNoKey
+	} else {
+		reply.Err = OK
+		reply.Value = v
+	}
 
 	return nil
 }
@@ -34,6 +48,28 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 	// Your code here.
+	// By Yan
+	if pb.me != pb.curView.Primary {
+		reply.Err = ErrWrongServer
+		return nil //errors.New("Not a Primary server")
+	}
+	
+	pb.db[args.Key] = args.Value
+	reply.Err = OK
+
+	return nil
+}
+
+// By Yan
+func (pb *PBServer) UpdatePutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
+
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Backup {
+		reply.Err = ErrWrongServer
+		return nil //errors.New("Not a Primary server")
+	}
+	
+	pb.db[args.Key] = args.Value
+	reply.Err = OK
 
 	return nil
 }
