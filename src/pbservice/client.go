@@ -7,10 +7,11 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
-
 type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
+	// By Yan
+	curView View
 }
 
 // this may come in handy.
@@ -28,7 +29,6 @@ func MakeClerk(vshost string, me string) *Clerk {
 
 	return ck
 }
-
 
 //
 // call() sends an RPC to the rpcname handler on server srv
@@ -74,8 +74,14 @@ func call(srv string, rpcname string,
 func (ck *Clerk) Get(key string) string {
 
 	// Your code here.
+	// By Yan
+	var args GetArgs
+	var reply GetReply
 
-	return "???"
+	args.Key = key
+	call(pb.curView.Primary, "PBServer.Get", &args, &reply)
+
+	return reply.Value
 }
 
 //
@@ -84,6 +90,14 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 
 	// Your code here.
+	// By Yan
+	var args PutAppendArgs
+	var reply PutAppendReply
+
+	args.Key = key
+	args.Value = value
+	args.Op = op
+	call(pb.curView.Primary, "PBServer.PutAppend", &args, &reply)
 }
 
 //

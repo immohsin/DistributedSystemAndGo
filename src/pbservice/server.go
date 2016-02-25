@@ -22,7 +22,7 @@ type PBServer struct {
 	// Your declarations here.
 	// By Yan
 	curView View
-	db	map[string]string
+	db      map[string]string
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -33,10 +33,11 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
 	}
-	
+
 	v, exist := pb.db[args.Key]
 	if !exist {
 		reply.Err = ErrNoKey
+		reply.Value = ""
 	} else {
 		reply.Err = OK
 		reply.Value = v
@@ -53,7 +54,25 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
 	}
-	
+
+	pb.db[args.Key] = args.Value
+
+	var replyU PingReply
+	call(pb.curView.Backup, "PBServer.UpdateSingle", args, &replyU)
+
+	reply.Err = OK
+
+	return nil
+}
+
+// By Yan
+func (pb *PBServer) UpdateSingle(args *PutAppendArgs, reply *PutAppendReply) error {
+
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Backup {
+		reply.Err = ErrWrongServer
+		return nil //errors.New("Not a Primary server")
+	}
+
 	pb.db[args.Key] = args.Value
 	reply.Err = OK
 
@@ -61,14 +80,17 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 }
 
 // By Yan
-func (pb *PBServer) UpdatePutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
+func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllReply) error {
 
-	if pb.me != pb.curView.Backup || pb.me == pb.curView.Backup {
+	if pb.me != pb.curView.Backup {
 		reply.Err = ErrWrongServer
-		return nil //errors.New("Not a Primary server")
+		return nil
 	}
-	
-	pb.db[args.Key] = args.Value
+
+	for k, v := range args.DB {
+		pb.db[k] = v
+	}
+
 	reply.Err = OK
 
 	return nil
@@ -93,6 +115,18 @@ func (pb *PBServer) tick() {
 	if pb.curView.Primary == pb.me && pb.curView.Primary != vx.Primary {
 
 	}
+
+	if pb.curView.Backup == "" && vx.Backup != "" {
+		var args ReplicateAllArgs
+		var reply ReplicateAllReply
+
+		for k, v := range pb.db {
+			args.DB[k] = v
+		}
+
+		call(vx.Backup, "PBServer.ReplicateAll", &args, &replyU)
+	}
+
 	pb.curView = vx
 
 	return reply.View, nil

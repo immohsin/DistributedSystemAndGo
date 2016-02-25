@@ -16,6 +16,8 @@ type PutAppendArgs struct {
 
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	// By Yan
+	Op string
 }
 
 type PutAppendReply struct {
@@ -32,5 +34,13 @@ type GetReply struct {
 	Value string
 }
 
-
 // Your RPC definitions here.
+// By Yan
+type ReplicateAllArgs struct {
+	Me string
+	DB map[string]string
+}
+
+type ReplicateAllReply struct {
+	Err Err
+}
