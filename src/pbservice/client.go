@@ -7,11 +7,15 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
+import (
+	"log"
+)
+
 type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
 	// By Yan
-	curView View
+	curView viewservice.View
 }
 
 // this may come in handy.
@@ -26,6 +30,10 @@ func MakeClerk(vshost string, me string) *Clerk {
 	ck := new(Clerk)
 	ck.vs = viewservice.MakeClerk(me, vshost)
 	// Your ck.* initializations here
+	// By Yan
+	ck.curView.Primary = ""
+	ck.curView.Backup = ""
+	ck.curView.Viewnum = 0
 
 	return ck
 }
@@ -79,7 +87,7 @@ func (ck *Clerk) Get(key string) string {
 	var reply GetReply
 
 	args.Key = key
-	call(pb.curView.Primary, "PBServer.Get", &args, &reply)
+	call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 
 	return reply.Value
 }
@@ -94,10 +102,17 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	var args PutAppendArgs
 	var reply PutAppendReply
 
+	if ck.curView.Primary == "" {
+		vx, _ := ck.vs.Get()
+		ck.curView = vx
+	}
+
+	log.Printf("curView.Primary is %s", ck.curView.Primary)
+
 	args.Key = key
 	args.Value = value
 	args.Op = op
-	call(pb.curView.Primary, "PBServer.PutAppend", &args, &reply)
+	call(ck.curView.Primary, "PBServer.PutAppend", &args, &reply)
 }
 
 //

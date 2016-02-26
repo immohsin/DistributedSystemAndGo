@@ -21,7 +21,7 @@ type PBServer struct {
 	vs         *viewservice.Clerk
 	// Your declarations here.
 	// By Yan
-	curView View
+	curView viewservice.View
 	db      map[string]string
 }
 
@@ -29,6 +29,9 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
 	// By Yan
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
 	if pb.me != pb.curView.Primary {
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
@@ -50,15 +53,23 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 
 	// Your code here.
 	// By Yan
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	log.Printf("PutAppend\n")
 	if pb.me != pb.curView.Primary {
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
 	}
 
-	pb.db[args.Key] = args.Value
+	if args.Op == "Put" {
+		pb.db[args.Key] = args.Value
+	} else {
+		pb.db[args.Key] = pb.db[args.Key] + args.Value
+	}
 
-	var replyU PingReply
-	call(pb.curView.Backup, "PBServer.UpdateSingle", args, &replyU)
+	var replyU PutAppendReply
+	call(pb.curView.Backup, "PBServer.Forward", args, &replyU)
 
 	reply.Err = OK
 
@@ -66,14 +77,21 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 }
 
 // By Yan
-func (pb *PBServer) UpdateSingle(args *PutAppendArgs, reply *PutAppendReply) error {
+func (pb *PBServer) Forward(args *PutAppendArgs, reply *PutAppendReply) error {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
 
-	if pb.me != pb.curView.Backup || pb.me == pb.curView.Backup {
+	log.Printf("Forward\n")
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
 	}
-
-	pb.db[args.Key] = args.Value
+	log.Printf("Forward 2\n")
+	if args.Op == "Put" {
+		pb.db[args.Key] = args.Value
+	} else {
+		pb.db[args.Key] = pb.db[args.Key] + args.Value
+	}
 	reply.Err = OK
 
 	return nil
@@ -81,6 +99,10 @@ func (pb *PBServer) UpdateSingle(args *PutAppendArgs, reply *PutAppendReply) err
 
 // By Yan
 func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllReply) error {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	log.Printf("ReplicateAll\n")
 
 	if pb.me != pb.curView.Backup {
 		reply.Err = ErrWrongServer
@@ -109,27 +131,38 @@ func (pb *PBServer) tick() {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	vx, ok := pb.vs.Get()
-	vx, ok := pb.vs.Ping(vx.Viewnum)
+	log.Printf("%s tick", pb.curView.Primary)
+
+	vx, _ := pb.vs.Ping(pb.curView.Viewnum)
+
+	log.Printf("vx Primary is %s", vx.Primary)
+	log.Printf("vx Backup is %s", vx.Backup)
+	log.Printf("vx Viewnum is %d", vx.Viewnum)
 
 	if pb.curView.Primary == pb.me && pb.curView.Primary != vx.Primary {
 
 	}
 
-	if pb.curView.Backup == "" && vx.Backup != "" {
+	if pb.me == pb.curView.Primary && pb.curView.Backup == "" && vx.Backup != "" {
 		var args ReplicateAllArgs
 		var reply ReplicateAllReply
+
+		args.DB = make(map[string]string)
 
 		for k, v := range pb.db {
 			args.DB[k] = v
 		}
 
-		call(vx.Backup, "PBServer.ReplicateAll", &args, &replyU)
+		log.Printf("call ReplicateAll")
+		call(vx.Backup, "PBServer.ReplicateAll", &args, &reply)
+		if reply.Err != OK {
+			log.Printf("RPC ReplicateAll failed\n")
+		}
 	}
 
 	pb.curView = vx
 
-	return reply.View, nil
+	//return reply.View, nil
 }
 
 // tell the server to shut itself down.
@@ -158,10 +191,13 @@ func (pb *PBServer) isunreliable() bool {
 }
 
 func StartServer(vshost string, me string) *PBServer {
+	log.Printf("startServer %s", me)
 	pb := new(PBServer)
 	pb.me = me
 	pb.vs = viewservice.MakeClerk(me, vshost)
 	// Your pb.* initializations here.
+	// By Yan
+	pb.db = make(map[string]string)
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
