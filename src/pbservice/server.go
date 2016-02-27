@@ -32,6 +32,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
+	log.Printf("Get %s\n", pb.me)
 	if pb.me != pb.curView.Primary {
 		reply.Err = ErrWrongServer
 		return nil //errors.New("Not a Primary server")
@@ -102,7 +103,7 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	log.Printf("ReplicateAll\n")
+	log.Printf("ReplicateAll, %s\n", pb.me)
 
 	if pb.me != pb.curView.Backup {
 		reply.Err = ErrWrongServer
@@ -110,6 +111,8 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 	}
 
 	for k, v := range args.DB {
+		//log.Printf("Key is %s", k)
+		//log.Printf("Value is %s", v)
 		pb.db[k] = v
 	}
 

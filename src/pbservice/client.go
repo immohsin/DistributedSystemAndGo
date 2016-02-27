@@ -9,6 +9,7 @@ import "math/big"
 
 import (
 	"log"
+	"time"
 )
 
 type Clerk struct {
@@ -86,8 +87,26 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
+	log.Printf("Get\n")
+
 	args.Key = key
-	call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+	c := make(chan bool, 1)
+	go func() {
+		c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+	}()
+	select {
+	case success := <-c:
+		if success == false {
+			vx, _ := ck.vs.Get()
+			ck.curView = vx
+			call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+		}
+	case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+		log.Printf("expired\n")
+		vx, _ := ck.vs.Get()
+		ck.curView = vx
+		call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+	}
 
 	return reply.Value
 }
