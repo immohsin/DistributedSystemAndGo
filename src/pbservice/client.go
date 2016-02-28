@@ -89,25 +89,39 @@ func (ck *Clerk) Get(key string) string {
 
 	log.Printf("Get\n")
 
-	args.Key = key
-	c := make(chan bool, 1)
-	go func() {
-		c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
-	}()
-	select {
-	case success := <-c:
-		if success == false {
-			vx, _ := ck.vs.Get()
-			ck.curView = vx
-			call(ck.curView.Primary, "PBServer.Get", &args, &reply)
-		}
-	case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-		log.Printf("expired\n")
+	if ck.curView.Primary == "" {
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
-		call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 	}
 
+	args.Key = key
+	args.Id = nrand()
+	c := make(chan bool, 1)
+	for {
+		if ck.curView.Primary != "" {
+			go func() {
+				c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+			}()
+		} else {
+			log.Printf("Get no Primary server\n")
+		}
+		select {
+		case success := <-c:
+			if success == false {
+				vx, _ := ck.vs.Get()
+				ck.curView = vx
+			} else {
+				close(c)
+				return reply.Value
+			}
+		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+			log.Printf("Get expired\n")
+			vx, _ := ck.vs.Get()
+			ck.curView = vx
+		}
+	}
+
+	close(c)
 	return reply.Value
 }
 
@@ -131,7 +145,34 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Key = key
 	args.Value = value
 	args.Op = op
-	call(ck.curView.Primary, "PBServer.PutAppend", &args, &reply)
+	args.Id = nrand()
+	c := make(chan bool, 1)
+	for {
+		if ck.curView.Primary != "" {
+			go func() {
+				c <- call(ck.curView.Primary, "PBServer.PutAppend", &args, &reply)
+			}()
+		} else {
+			log.Printf("PutAppend no Primary server\n")
+		}
+		select {
+		case success := <-c:
+			if success == false {
+				vx, _ := ck.vs.Get()
+				ck.curView = vx
+			} else {
+				close(c)
+				return
+			}
+		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+			log.Printf("PutAppend expired\n")
+			vx, _ := ck.vs.Get()
+			ck.curView = vx
+		}
+	}
+
+	close(c)
+	return
 }
 
 //

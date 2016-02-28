@@ -18,6 +18,7 @@ type PutAppendArgs struct {
 	// otherwise RPC will break.
 	// By Yan
 	Op string
+	Id int64
 }
 
 type PutAppendReply struct {
@@ -27,6 +28,8 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+	// By Yan
+	Id int64
 }
 
 type GetReply struct {

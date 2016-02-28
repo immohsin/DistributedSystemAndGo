@@ -23,6 +23,7 @@ type PBServer struct {
 	// By Yan
 	curView viewservice.View
 	db      map[string]string
+	lastId  int64
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -56,6 +57,13 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	// By Yan
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
+
+	if pb.lastId == args.Id {
+		reply.Err = OK
+		return nil
+	} else {
+		pb.lastId = args.Id
+	}
 
 	log.Printf("PutAppend\n")
 	if pb.me != pb.curView.Primary {
