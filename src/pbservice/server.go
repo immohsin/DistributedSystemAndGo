@@ -33,10 +33,16 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	log.Printf("Get %s\n", pb.me)
+	if pb.lastId == args.Id {
+		reply.Err = OK
+		return nil
+	} else {
+		pb.lastId = args.Id
+	}
+
+	//log.Printf("Get %s\n", pb.me)
 	if pb.me != pb.curView.Primary {
-		reply.Err = ErrWrongServer
-		return nil //errors.New("Not a Primary server")
+		return errors.New(ErrWrongServer)
 	}
 
 	v, exist := pb.db[args.Key]
@@ -65,10 +71,9 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		pb.lastId = args.Id
 	}
 
-	log.Printf("PutAppend\n")
+	//log.Printf("PutAppend\n")
 	if pb.me != pb.curView.Primary {
-		reply.Err = ErrWrongServer
-		return nil //errors.New("Not a Primary server")
+		return errors.New(ErrWrongServer)
 	}
 
 	if args.Op == "Put" {
@@ -90,12 +95,11 @@ func (pb *PBServer) Forward(args *PutAppendArgs, reply *PutAppendReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	log.Printf("Forward\n")
+	//log.Printf("Forward\n")
 	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
-		reply.Err = ErrWrongServer
-		return nil //errors.New("Not a Primary server")
+		return errors.New(ErrWrongServer)
 	}
-	log.Printf("Forward 2\n")
+	//log.Printf("Forward 2\n")
 	if args.Op == "Put" {
 		pb.db[args.Key] = args.Value
 	} else {
@@ -111,16 +115,13 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	log.Printf("ReplicateAll, %s\n", pb.me)
+	//log.Printf("ReplicateAll, %s\n", pb.me)
 
 	if pb.me != pb.curView.Backup {
-		reply.Err = ErrWrongServer
-		return nil
+		return errors.New(ErrWrongServer)
 	}
 
 	for k, v := range args.DB {
-		//log.Printf("Key is %s", k)
-		//log.Printf("Value is %s", v)
 		pb.db[k] = v
 	}
 
@@ -142,19 +143,19 @@ func (pb *PBServer) tick() {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	log.Printf("%s tick", pb.curView.Primary)
+	//log.Printf("%s tick", pb.curView.Primary)
 
 	vx, _ := pb.vs.Ping(pb.curView.Viewnum)
 
-	log.Printf("vx Primary is %s", vx.Primary)
-	log.Printf("vx Backup is %s", vx.Backup)
-	log.Printf("vx Viewnum is %d", vx.Viewnum)
+	//log.Printf("vx Primary is %s", vx.Primary)
+	//log.Printf("vx Backup is %s", vx.Backup)
+	//log.Printf("vx Viewnum is %d", vx.Viewnum)
 
 	if pb.curView.Primary == pb.me && pb.curView.Primary != vx.Primary {
 
 	}
 
-	if pb.me == pb.curView.Primary && pb.curView.Backup == "" && vx.Backup != "" {
+	if pb.me == pb.curView.Primary && pb.curView.Backup != vx.Backup && vx.Backup != "" {
 		var args ReplicateAllArgs
 		var reply ReplicateAllReply
 
@@ -164,10 +165,10 @@ func (pb *PBServer) tick() {
 			args.DB[k] = v
 		}
 
-		log.Printf("call ReplicateAll")
-		call(vx.Backup, "PBServer.ReplicateAll", &args, &reply)
-		if reply.Err != OK {
-			log.Printf("RPC ReplicateAll failed\n")
+		//log.Printf("call ReplicateAll")
+		succeed := false
+		for succeed != true {
+			succeed = call(vx.Backup, "PBServer.ReplicateAll", &args, &reply)
 		}
 	}
 

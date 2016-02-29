@@ -87,7 +87,7 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
-	log.Printf("Get\n")
+	//log.Printf("Get\n")
 
 	if ck.curView.Primary == "" {
 		vx, _ := ck.vs.Get()
@@ -140,7 +140,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		ck.curView = vx
 	}
 
-	log.Printf("curView.Primary is %s", ck.curView.Primary)
+	//log.Printf("curView.Primary is %s", ck.curView.Primary)
 
 	args.Key = key
 	args.Value = value
