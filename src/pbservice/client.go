@@ -87,9 +87,10 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
-	//log.Printf("Get\n")
+	log.Printf("Get curView.Primary is %s", ck.curView.Primary)
 
 	if ck.curView.Primary == "" {
+		log.Printf("Get no Primary server 1\n")
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
 	}
@@ -99,11 +100,12 @@ func (ck *Clerk) Get(key string) string {
 	c := make(chan bool, 1)
 	for {
 		if ck.curView.Primary != "" {
+			log.Printf("Get has Primary server\n")
 			go func() {
 				c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 			}()
 		} else {
-			log.Printf("Get no Primary server\n")
+			log.Printf("Get no Primary server 2\n")
 		}
 		select {
 		case success := <-c:
@@ -140,7 +142,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		ck.curView = vx
 	}
 
-	//log.Printf("curView.Primary is %s", ck.curView.Primary)
+	//log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
 
 	args.Key = key
 	args.Value = value

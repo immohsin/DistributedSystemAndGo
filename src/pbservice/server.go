@@ -12,6 +12,8 @@ import "os"
 import "syscall"
 import "math/rand"
 
+import "errors"
+
 type PBServer struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -21,9 +23,12 @@ type PBServer struct {
 	vs         *viewservice.Clerk
 	// Your declarations here.
 	// By Yan
-	curView viewservice.View
-	db      map[string]string
-	lastId  int64
+	curView            viewservice.View
+	db                 map[string]string
+	lastGetId          int64
+	lastPutAppendId    int64
+	lastForwardId      int64
+	lastReplicateAllId int64
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -33,11 +38,11 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	if pb.lastId == args.Id {
+	if pb.lastGetId == args.Id {
 		reply.Err = OK
 		return nil
 	} else {
-		pb.lastId = args.Id
+		pb.lastGetId = args.Id
 	}
 
 	//log.Printf("Get %s\n", pb.me)
@@ -64,11 +69,11 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	if pb.lastId == args.Id {
+	if pb.lastPutAppendId == args.Id {
 		reply.Err = OK
 		return nil
 	} else {
-		pb.lastId = args.Id
+		pb.lastPutAppendId = args.Id
 	}
 
 	//log.Printf("PutAppend\n")
@@ -82,8 +87,42 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		pb.db[args.Key] = pb.db[args.Key] + args.Value
 	}
 
-	var replyU PutAppendReply
-	call(pb.curView.Backup, "PBServer.Forward", args, &replyU)
+	log.Printf("Server PutAppend curView.Backup is %s", pb.curView.Backup)
+
+	if pb.curView.Backup != "" {
+		var replyU PutAppendReply
+		succeed := false
+
+		log.Printf("Server PutAppend has Backup server 1\n")
+
+		c := make(chan bool, 1)
+		for !succeed {
+			go func() {
+				c <- call(pb.curView.Backup, "PBServer.Forward", args, &replyU)
+			}()
+			select {
+			case success := <-c:
+				if !success {
+					vx, _ := pb.vs.Get()
+					pb.curView = vx
+					if pb.curView.Backup == "" {
+						succeed = true
+					}
+				} else {
+					succeed = true
+				}
+			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+				log.Printf("Get expired\n")
+				vx, _ := pb.vs.Get()
+				pb.curView = vx
+				if pb.curView.Backup == "" {
+					succeed = true
+				}
+			}
+		}
+
+		close(c)
+	}
 
 	reply.Err = OK
 
@@ -94,6 +133,13 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 func (pb *PBServer) Forward(args *PutAppendArgs, reply *PutAppendReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
+
+	if pb.lastForwardId == args.Id {
+		reply.Err = OK
+		return nil
+	} else {
+		pb.lastForwardId = args.Id
+	}
 
 	//log.Printf("Forward\n")
 	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
@@ -114,6 +160,13 @@ func (pb *PBServer) Forward(args *PutAppendArgs, reply *PutAppendReply) error {
 func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
+
+	if pb.lastReplicateAllId == args.Id {
+		reply.Err = OK
+		return nil
+	} else {
+		pb.lastReplicateAllId = args.Id
+	}
 
 	//log.Printf("ReplicateAll, %s\n", pb.me)
 
@@ -156,25 +209,51 @@ func (pb *PBServer) tick() {
 	}
 
 	if pb.me == pb.curView.Primary && pb.curView.Backup != vx.Backup && vx.Backup != "" {
+		pb.curView = vx
+
 		var args ReplicateAllArgs
 		var reply ReplicateAllReply
 
+		args.Me = pb.curView.Primary
 		args.DB = make(map[string]string)
+		args.Id = nrand()
 
 		for k, v := range pb.db {
 			args.DB[k] = v
 		}
 
 		//log.Printf("call ReplicateAll")
-		succeed := false
-		for succeed != true {
-			succeed = call(vx.Backup, "PBServer.ReplicateAll", &args, &reply)
+
+		log.Printf("Server ReplicateAll curView.Backup is %s", pb.curView.Backup)
+
+		c := make(chan bool, 1)
+		for {
+			go func() {
+				c <- call(pb.curView.Backup, "PBServer.ReplicateAll", &args, &reply)
+			}()
+			select {
+			case success := <-c:
+				if success == false {
+					vx, _ := pb.vs.Get()
+					pb.curView = vx
+					if pb.curView.Backup == "" {
+						return
+					}
+				} else {
+					return
+				}
+			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+				log.Printf("ReplicateAll expired\n")
+				vx, _ := pb.vs.Get()
+				pb.curView = vx
+				if pb.curView.Backup == "" {
+					return
+				}
+			}
 		}
 	}
 
 	pb.curView = vx
-
-	//return reply.View, nil
 }
 
 // tell the server to shut itself down.

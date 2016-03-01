@@ -42,6 +42,7 @@ type GetReply struct {
 type ReplicateAllArgs struct {
 	Me string
 	DB map[string]string
+	Id int64
 }
 
 type ReplicateAllReply struct {
