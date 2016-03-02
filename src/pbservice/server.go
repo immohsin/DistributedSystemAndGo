@@ -23,12 +23,13 @@ type PBServer struct {
 	vs         *viewservice.Clerk
 	// Your declarations here.
 	// By Yan
-	curView            viewservice.View
-	db                 map[string]string
-	lastGetId          int64
-	lastPutAppendId    int64
-	lastForwardId      int64
-	lastReplicateAllId int64
+	curView                viewservice.View
+	db                     map[string]string
+	lastGetId              int64
+	lastPutAppendId        int64
+	lastForwardGetId       int64
+	lastForwardPutAppendId int64
+	lastReplicateAllId     int64
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -38,16 +39,13 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	if pb.lastGetId == args.Id {
-		reply.Err = OK
-		return nil
-	} else {
-		pb.lastGetId = args.Id
-	}
-
 	//log.Printf("Get %s\n", pb.me)
 	if pb.me != pb.curView.Primary {
 		return errors.New(ErrWrongServer)
+	}
+
+	if pb.lastGetId != args.Id {
+		pb.lastGetId = args.Id
 	}
 
 	v, exist := pb.db[args.Key]
@@ -57,6 +55,38 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	} else {
 		reply.Err = OK
 		reply.Value = v
+	}
+
+	if pb.curView.Backup != "" {
+		var replyU GetReply
+		timedout := true
+
+		log.Printf("Server Get has Backup server 1\n")
+
+		c := make(chan bool, 1)
+		for timedout {
+			go func() {
+				c <- call(pb.curView.Backup, "PBServer.ForwardGet", args, &replyU)
+			}()
+			select {
+			case succeed := <-c:
+				if !succeed {
+					//its failed because client is primary
+					vx, _ := pb.vs.Get()
+					pb.curView = vx
+					return errors.New(ErrWrongServer)
+				} else {
+					timedout = false
+				}
+			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+				log.Printf("Server Get expired\n")
+				vx, _ := pb.vs.Get()
+				pb.curView = vx
+				if pb.curView.Backup == "" {
+					timedout = false
+				}
+			}
+		}
 	}
 
 	return nil
@@ -69,6 +99,11 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
+	//log.Printf("PutAppend\n")
+	if pb.me != pb.curView.Primary {
+		return errors.New(ErrWrongServer)
+	}
+
 	if pb.lastPutAppendId == args.Id {
 		reply.Err = OK
 		return nil
@@ -76,52 +111,49 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		pb.lastPutAppendId = args.Id
 	}
 
-	//log.Printf("PutAppend\n")
-	if pb.me != pb.curView.Primary {
-		return errors.New(ErrWrongServer)
-	}
-
 	if args.Op == "Put" {
 		pb.db[args.Key] = args.Value
 	} else {
-		pb.db[args.Key] = pb.db[args.Key] + args.Value
+		v, exist := pb.db[args.Key]
+		if !exist {
+			pb.db[args.Key] = args.Value
+		} else {
+			pb.db[args.Key] = v + args.Value
+		}
 	}
 
 	log.Printf("Server PutAppend curView.Backup is %s", pb.curView.Backup)
 
 	if pb.curView.Backup != "" {
 		var replyU PutAppendReply
-		succeed := false
+		timedout := false
 
 		log.Printf("Server PutAppend has Backup server 1\n")
 
 		c := make(chan bool, 1)
-		for !succeed {
+		for timedout {
 			go func() {
-				c <- call(pb.curView.Backup, "PBServer.Forward", args, &replyU)
+				c <- call(pb.curView.Backup, "PBServer.ForwardPutAppend", args, &replyU)
 			}()
 			select {
-			case success := <-c:
-				if !success {
+			case succeed := <-c:
+				if !succeed {
+					//its failed because client is primary
 					vx, _ := pb.vs.Get()
 					pb.curView = vx
-					if pb.curView.Backup == "" {
-						succeed = true
-					}
+					return errors.New(ErrWrongServer)
 				} else {
-					succeed = true
+					timedout = false
 				}
 			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-				log.Printf("Get expired\n")
+				log.Printf("Server PutAppend expired\n")
 				vx, _ := pb.vs.Get()
 				pb.curView = vx
 				if pb.curView.Backup == "" {
-					succeed = true
+					timedout = false
 				}
 			}
 		}
-
-		close(c)
 	}
 
 	reply.Err = OK
@@ -130,27 +162,53 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 }
 
 // By Yan
-func (pb *PBServer) Forward(args *PutAppendArgs, reply *PutAppendReply) error {
+func (pb *PBServer) ForwardGet(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
-
-	if pb.lastForwardId == args.Id {
-		reply.Err = OK
-		return nil
-	} else {
-		pb.lastForwardId = args.Id
-	}
 
 	//log.Printf("Forward\n")
 	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
 		return errors.New(ErrWrongServer)
 	}
+
+	if pb.lastForwardGetId != args.Id {
+		pb.lastForwardGetId = args.Id
+	}
+
+	reply.Err = OK
+
+	return nil
+}
+
+// By Yan
+func (pb *PBServer) ForwardPutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	//log.Printf("Forward\n")
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
+		return errors.New(ErrWrongServer)
+	}
+
+	if pb.lastForwardPutAppendId == args.Id {
+		reply.Err = OK
+		return nil
+	} else {
+		pb.lastForwardPutAppendId = args.Id
+	}
+
 	//log.Printf("Forward 2\n")
 	if args.Op == "Put" {
 		pb.db[args.Key] = args.Value
 	} else {
-		pb.db[args.Key] = pb.db[args.Key] + args.Value
+		v, exist := pb.db[args.Key]
+		if !exist {
+			pb.db[args.Key] = args.Value
+		} else {
+			pb.db[args.Key] = v + args.Value
+		}
 	}
+
 	reply.Err = OK
 
 	return nil
@@ -161,17 +219,16 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
+	//log.Printf("ReplicateAll, %s\n", pb.me)
+	if pb.me != pb.curView.Backup {
+		return errors.New(ErrWrongServer)
+	}
+
 	if pb.lastReplicateAllId == args.Id {
 		reply.Err = OK
 		return nil
 	} else {
 		pb.lastReplicateAllId = args.Id
-	}
-
-	//log.Printf("ReplicateAll, %s\n", pb.me)
-
-	if pb.me != pb.curView.Backup {
-		return errors.New(ErrWrongServer)
 	}
 
 	for k, v := range args.DB {
