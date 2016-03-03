@@ -100,7 +100,7 @@ func (ck *Clerk) Get(key string) string {
 	c := make(chan bool, 1)
 	for {
 		if ck.curView.Primary != "" {
-			log.Printf("Get has Primary server\n")
+			log.Printf("Get has Primary server %s\n", ck.curView.Primary)
 			go func() {
 				c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 			}()
