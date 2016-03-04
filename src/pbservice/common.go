@@ -1,5 +1,7 @@
 package pbservice
 
+import "time"
+
 const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
@@ -17,8 +19,9 @@ type PutAppendArgs struct {
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
 	// By Yan
-	Op string
-	Id int64
+	Op      string
+	Id      int64
+	AckedId int64
 }
 
 type PutAppendReply struct {
@@ -29,7 +32,8 @@ type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
 	// By Yan
-	Id int64
+	Id      int64
+	AckedId int64
 }
 
 type GetReply struct {
@@ -40,9 +44,13 @@ type GetReply struct {
 // Your RPC definitions here.
 // By Yan
 type ReplicateAllArgs struct {
-	Me string
-	DB map[string]string
-	Id int64
+	Me              string
+	DB              map[string]string
+	LastPutAppendId map[int64]time.Time
+	//LastForwardPutAppendId map[int64]time.Time
+	//LastReplicateAllId     map[int64]time.Time
+	Id      int64
+	AckedId int64
 }
 
 type ReplicateAllReply struct {

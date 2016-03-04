@@ -23,13 +23,14 @@ type PBServer struct {
 	vs         *viewservice.Clerk
 	// Your declarations here.
 	// By Yan
-	curView                viewservice.View
-	db                     map[string]string
-	lastGetId              int64
-	lastPutAppendId        int64
-	lastForwardGetId       int64
-	lastForwardPutAppendId int64
-	lastReplicateAllId     int64
+	curView viewservice.View
+	db      map[string]string
+	//lastGetId              map[int64]time.Time
+	lastPutAppendId map[int64]time.Time
+	//lastForwardGetId       map[int64]time.Time
+	lastForwardPutAppendId map[int64]time.Time
+	lastReplicateAllId     map[int64]time.Time
+	ackedReplicateAllId    int64
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -44,9 +45,9 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 		return errors.New(ErrWrongServer)
 	}
 
-	if pb.lastGetId != args.Id {
-		pb.lastGetId = args.Id
-	}
+	//if pb.lastGetId != args.Id {
+	//	pb.lastGetId = args.Id
+	//}
 
 	v, exist := pb.db[args.Key]
 	if !exist {
@@ -61,7 +62,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 		var replyU GetReply
 		timedout := true
 
-		log.Printf("Server Get has Backup server 1\n")
+		//log.Printf("Server Get has Backup server 1\n")
 
 		c := make(chan bool, 1)
 		for timedout {
@@ -79,7 +80,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 					timedout = false
 				}
 			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-				log.Printf("Server Get expired\n")
+				//log.Printf("Server Get expired\n")
 				vx, _ := pb.vs.Get()
 				pb.curView = vx
 				if pb.curView.Backup == "" {
@@ -104,8 +105,9 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		return errors.New(ErrWrongServer)
 	}
 
-	if pb.lastPutAppendId == args.Id {
-		//log.Printf("Server PutAppend curView.Backup duplicate")
+	delete(pb.lastPutAppendId, args.AckedId)
+	_, seen := pb.lastPutAppendId[args.Id]
+	if seen {
 		reply.Err = OK
 		return nil
 	}
@@ -158,7 +160,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		//log.Printf("Server PutAppend finished\n")
 	}
 
-	pb.lastPutAppendId = args.Id
+	pb.lastPutAppendId[args.Id] = time.Now()
 	reply.Err = OK
 
 	return nil
@@ -174,9 +176,9 @@ func (pb *PBServer) ForwardGet(args *GetArgs, reply *GetReply) error {
 		return errors.New(ErrWrongServer)
 	}
 
-	if pb.lastForwardGetId != args.Id {
-		pb.lastForwardGetId = args.Id
-	}
+	//if pb.lastForwardGetId != args.Id {
+	//	pb.lastForwardGetId = args.Id
+	//}
 
 	reply.Err = OK
 
@@ -193,7 +195,9 @@ func (pb *PBServer) ForwardPutAppend(args *PutAppendArgs, reply *PutAppendReply)
 		return errors.New(ErrWrongServer)
 	}
 
-	if pb.lastForwardPutAppendId == args.Id {
+	delete(pb.lastPutAppendId, args.AckedId)
+	_, seen := pb.lastPutAppendId[args.Id]
+	if seen {
 		reply.Err = OK
 		return nil
 	}
@@ -210,7 +214,7 @@ func (pb *PBServer) ForwardPutAppend(args *PutAppendArgs, reply *PutAppendReply)
 		}
 	}
 
-	pb.lastForwardPutAppendId = args.Id
+	pb.lastForwardPutAppendId[args.Id] = time.Now()
 	reply.Err = OK
 
 	return nil
@@ -226,7 +230,9 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 		return errors.New(ErrWrongServer)
 	}
 
-	if pb.lastReplicateAllId == args.Id {
+	delete(pb.lastReplicateAllId, args.AckedId)
+	_, seen := pb.lastReplicateAllId[args.Id]
+	if seen {
 		reply.Err = OK
 		return nil
 	}
@@ -235,7 +241,11 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 		pb.db[k] = v
 	}
 
-	pb.lastReplicateAllId = args.Id
+	for k, v := range args.LastPutAppendId {
+		pb.lastPutAppendId[k] = v
+	}
+
+	pb.lastReplicateAllId[args.Id] = time.Now()
 	reply.Err = OK
 
 	return nil
@@ -270,10 +280,16 @@ func (pb *PBServer) tick() {
 
 		args.Me = pb.curView.Primary
 		args.DB = make(map[string]string)
+		args.LastPutAppendId = make(map[int64]time.Time)
 		args.Id = nrand()
+		args.AckedId = pb.ackedReplicateAllId
 
 		for k, v := range pb.db {
 			args.DB[k] = v
+		}
+
+		for k, v := range pb.lastPutAppendId {
+			args.LastPutAppendId[k] = v
 		}
 
 		//log.Printf("call ReplicateAll")
@@ -295,6 +311,7 @@ func (pb *PBServer) tick() {
 					}
 				} else {
 					log.Printf("Replication done\n")
+					pb.ackedReplicateAllId = args.Id
 					return
 				}
 			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
@@ -343,6 +360,9 @@ func StartServer(vshost string, me string) *PBServer {
 	// Your pb.* initializations here.
 	// By Yan
 	pb.db = make(map[string]string)
+	pb.lastPutAppendId = make(map[int64]time.Time)
+	pb.lastForwardPutAppendId = make(map[int64]time.Time)
+	pb.lastReplicateAllId = make(map[int64]time.Time)
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)

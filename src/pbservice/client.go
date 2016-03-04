@@ -16,7 +16,8 @@ type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
 	// By Yan
-	curView viewservice.View
+	curView          viewservice.View
+	ackedPutAppendId int64
 }
 
 // this may come in handy.
@@ -87,7 +88,7 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
-	log.Printf("Get curView.Primary is %s", ck.curView.Primary)
+	//log.Printf("Get curView.Primary is %s", ck.curView.Primary)
 
 	if ck.curView.Primary == "" {
 		log.Printf("Get no Primary server 1\n")
@@ -100,12 +101,12 @@ func (ck *Clerk) Get(key string) string {
 	c := make(chan bool, 1)
 	for {
 		if ck.curView.Primary != "" {
-			log.Printf("Get has Primary server %s\n", ck.curView.Primary)
+			//log.Printf("Get has Primary server %s\n", ck.curView.Primary)
 			go func() {
 				c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 			}()
 		} else {
-			log.Printf("Get no Primary server 2\n")
+			//log.Printf("Get no Primary server 2\n")
 		}
 		select {
 		case success := <-c:
@@ -117,14 +118,11 @@ func (ck *Clerk) Get(key string) string {
 				return reply.Value
 			}
 		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-			log.Printf("Get expired\n")
+			//log.Printf("Get expired\n")
 			vx, _ := ck.vs.Get()
 			ck.curView = vx
 		}
 	}
-
-	close(c)
-	return reply.Value
 }
 
 //
@@ -148,6 +146,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Value = value
 	args.Op = op
 	args.Id = nrand()
+	args.AckedId = ck.ackedPutAppendId
 	c := make(chan bool, 1)
 	for {
 		if ck.curView.Primary != "" {
@@ -158,11 +157,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			log.Printf("PutAppend no Primary server\n")
 		}
 		select {
-		case success := <-c:
-			if success == false {
+		case succeed := <-c:
+			if succeed == false {
 				vx, _ := ck.vs.Get()
 				ck.curView = vx
 			} else {
+				ck.ackedPutAppendId = args.Id
 				close(c)
 				return
 			}
@@ -172,9 +172,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			ck.curView = vx
 		}
 	}
-
-	close(c)
-	return
 }
 
 //
