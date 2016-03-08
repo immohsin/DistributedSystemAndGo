@@ -26,11 +26,10 @@ type PBServer struct {
 	curView viewservice.View
 	db      map[string]string
 	//lastGetId              map[int64]time.Time
-	lastPutAppendId map[int64]time.Time
-	//lastForwardGetId       map[int64]time.Time
-	lastForwardPutAppendId map[int64]time.Time
-	lastReplicateAllId     map[int64]time.Time
-	ackedReplicateAllId    int64
+	lastPutAppendId     map[int64]time.Time
+	lastReplicateAllId  map[int64]time.Time
+	ackedReplicateAllId int64
+	viewConnected       bool
 }
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
@@ -40,8 +39,8 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	//log.Printf("Get %s\n", pb.me)
-	if pb.me != pb.curView.Primary {
+	fmt.Printf("Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
+	if pb.me != pb.curView.Primary || !pb.viewConnected {
 		return errors.New(ErrWrongServer)
 	}
 
@@ -101,11 +100,10 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	defer pb.mu.Unlock()
 
 	//log.Printf("PutAppend\n")
-	if pb.me != pb.curView.Primary {
+	if pb.me != pb.curView.Primary || !pb.viewConnected {
 		return errors.New(ErrWrongServer)
 	}
 
-	delete(pb.lastPutAppendId, args.AckedId)
 	_, seen := pb.lastPutAppendId[args.Id]
 	if seen {
 		reply.Err = OK
@@ -119,10 +117,12 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		if !exist {
 			pb.db[args.Key] = args.Value
 		} else {
+			log.Printf("append k is %s v is %s", args.Key, args.Value)
 			pb.db[args.Key] = v + args.Value
 		}
 	}
 
+	pb.lastPutAppendId[args.Id] = time.Now()
 	//log.Printf("Server PutAppend curView.Backup is %s", pb.curView.Backup)
 
 	if pb.curView.Backup != "" {
@@ -160,7 +160,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		//log.Printf("Server PutAppend finished\n")
 	}
 
-	pb.lastPutAppendId[args.Id] = time.Now()
+	//delete(pb.lastPutAppendId, args.AckedId)
 	reply.Err = OK
 
 	return nil
@@ -195,7 +195,6 @@ func (pb *PBServer) ForwardPutAppend(args *PutAppendArgs, reply *PutAppendReply)
 		return errors.New(ErrWrongServer)
 	}
 
-	delete(pb.lastPutAppendId, args.AckedId)
 	_, seen := pb.lastPutAppendId[args.Id]
 	if seen {
 		reply.Err = OK
@@ -214,7 +213,8 @@ func (pb *PBServer) ForwardPutAppend(args *PutAppendArgs, reply *PutAppendReply)
 		}
 	}
 
-	pb.lastForwardPutAppendId[args.Id] = time.Now()
+	//delete(pb.lastPutAppendId, args.AckedId)
+	pb.lastPutAppendId[args.Id] = time.Now()
 	reply.Err = OK
 
 	return nil
@@ -230,7 +230,6 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 		return errors.New(ErrWrongServer)
 	}
 
-	delete(pb.lastReplicateAllId, args.AckedId)
 	_, seen := pb.lastReplicateAllId[args.Id]
 	if seen {
 		reply.Err = OK
@@ -245,6 +244,7 @@ func (pb *PBServer) ReplicateAll(args *ReplicateAllArgs, reply *ReplicateAllRepl
 		pb.lastPutAppendId[k] = v
 	}
 
+	//delete(pb.lastReplicateAllId, args.AckedId)
 	pb.lastReplicateAllId[args.Id] = time.Now()
 	reply.Err = OK
 
@@ -266,7 +266,13 @@ func (pb *PBServer) tick() {
 
 	//log.Printf("%s tick", pb.curView.Primary)
 
-	vx, _ := pb.vs.Ping(pb.curView.Viewnum)
+	vx, err := pb.vs.Ping(pb.curView.Viewnum)
+	if err != nil {
+		fmt.Println(pb.me, err)
+		pb.viewConnected = false
+	} else {
+		pb.viewConnected = true
+	}
 
 	//log.Printf("vx Primary is %s", vx.Primary)
 	//log.Printf("vx Backup is %s", vx.Backup)
@@ -361,8 +367,8 @@ func StartServer(vshost string, me string) *PBServer {
 	// By Yan
 	pb.db = make(map[string]string)
 	pb.lastPutAppendId = make(map[int64]time.Time)
-	pb.lastForwardPutAppendId = make(map[int64]time.Time)
 	pb.lastReplicateAllId = make(map[int64]time.Time)
+	pb.viewConnected = false
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)

@@ -91,7 +91,7 @@ func (ck *Clerk) Get(key string) string {
 	//log.Printf("Get curView.Primary is %s", ck.curView.Primary)
 
 	if ck.curView.Primary == "" {
-		log.Printf("Get no Primary server 1\n")
+		//log.Printf("Get no Primary server 1\n")
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
 	}
@@ -114,13 +114,13 @@ func (ck *Clerk) Get(key string) string {
 				vx, _ := ck.vs.Get()
 				ck.curView = vx
 			} else {
-				close(c)
 				return reply.Value
 			}
 		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-			//log.Printf("Get expired\n")
+			log.Printf("Get expired\n")
 			vx, _ := ck.vs.Get()
 			ck.curView = vx
+			log.Printf("cur primary is %s", ck.curView.Primary)
 		}
 	}
 }
@@ -163,7 +163,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				ck.curView = vx
 			} else {
 				ck.ackedPutAppendId = args.Id
-				close(c)
 				return
 			}
 		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
