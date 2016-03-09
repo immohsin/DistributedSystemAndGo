@@ -39,7 +39,9 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	fmt.Printf("Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
+	log.Printf("Server Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
+	log.Printf("Server Get %s %s\n", pb.curView.Primary, pb.curView.Backup)
+	log.Printf("id is %d", args.Id)
 	if pb.me != pb.curView.Primary || !pb.viewConnected {
 		return errors.New(ErrWrongServer)
 	}
@@ -57,8 +59,11 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 		reply.Value = v
 	}
 
+	reply.Me = pb.me
+
 	if pb.curView.Backup != "" {
 		var replyU GetReply
+		args.Me = pb.me
 		timedout := true
 
 		//log.Printf("Server Get has Backup server 1\n")
@@ -79,7 +84,6 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 					timedout = false
 				}
 			case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-				//log.Printf("Server Get expired\n")
 				vx, _ := pb.vs.Get()
 				pb.curView = vx
 				if pb.curView.Backup == "" {
@@ -99,7 +103,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	//log.Printf("PutAppend\n")
+	log.Printf("PutAppend\n")
 	if pb.me != pb.curView.Primary || !pb.viewConnected {
 		return errors.New(ErrWrongServer)
 	}
@@ -171,8 +175,9 @@ func (pb *PBServer) ForwardGet(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	//log.Printf("Forward Get\n")
-	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
+	log.Printf("Forward Get\n")
+	log.Printf("Server Forward Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary || args.Me != pb.curView.Primary {
 		return errors.New(ErrWrongServer)
 	}
 

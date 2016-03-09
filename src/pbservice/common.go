@@ -22,6 +22,7 @@ type PutAppendArgs struct {
 	Op      string
 	Id      int64
 	AckedId int64
+	Me      string
 }
 
 type PutAppendReply struct {
@@ -34,11 +35,13 @@ type GetArgs struct {
 	// By Yan
 	Id      int64
 	AckedId int64
+	Me      string
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+	Me    string
 }
 
 // Your RPC definitions here.
@@ -55,4 +58,9 @@ type ReplicateAllArgs struct {
 
 type ReplicateAllReply struct {
 	Err Err
+}
+
+type GetRes struct {
+	Succeed bool
+	Reply   GetReply
 }

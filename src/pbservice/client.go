@@ -88,7 +88,7 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
-	//log.Printf("Get curView.Primary is %s", ck.curView.Primary)
+	log.Printf("Get curView.Primary is %s", ck.curView.Primary)
 
 	if ck.curView.Primary == "" {
 		//log.Printf("Get no Primary server 1\n")
@@ -98,29 +98,45 @@ func (ck *Clerk) Get(key string) string {
 
 	args.Key = key
 	args.Id = nrand()
-	c := make(chan bool, 1)
+	log.Printf("id is %d", args.Id)
+	c := make(chan GetRes, 1)
+	lastPrimary := ""
 	for {
-		if ck.curView.Primary != "" {
-			//log.Printf("Get has Primary server %s\n", ck.curView.Primary)
+		if ck.curView.Primary != lastPrimary {
+			log.Printf("Get has Primary server %s\n", ck.curView.Primary)
+			lastPrimary = ck.curView.Primary
+			server := ck.curView.Primary
+			argsR := args
+			replyR := reply
 			go func() {
-				c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+				var res GetRes
+				res.Succeed = call(server, "PBServer.Get", &argsR, &replyR)
+				res.Reply = replyR
+				c <- res
 			}()
 		} else {
 			//log.Printf("Get no Primary server 2\n")
 		}
 		select {
-		case success := <-c:
-			if success == false {
+		case res := <-c:
+			if res.Succeed == false {
+				log.Printf("get failed")
 				vx, _ := ck.vs.Get()
 				ck.curView = vx
 			} else {
-				return reply.Value
+				log.Printf("reply.Me is %s", res.Reply.Me)
+				log.Printf("reply.Value is %s", res.Reply.Value)
+				if res.Reply.Me != ck.curView.Primary {
+					continue
+				}
+				return res.Reply.Value
 			}
-		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-			log.Printf("Get expired\n")
-			vx, _ := ck.vs.Get()
-			ck.curView = vx
-			log.Printf("cur primary is %s", ck.curView.Primary)
+			//case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
+			//	log.Printf("Get expired\n")
+			//	log.Printf("cur primary is %s", ck.curView.Primary)
+			//	vx, _ := ck.vs.Get()
+			//	ck.curView = vx
+			//	log.Printf("cur primary is %s", ck.curView.Primary)
 		}
 	}
 }
@@ -135,12 +151,14 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	var args PutAppendArgs
 	var reply PutAppendReply
 
+	log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
+
 	if ck.curView.Primary == "" {
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
 	}
 
-	//log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
+	log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
 
 	args.Key = key
 	args.Value = value
