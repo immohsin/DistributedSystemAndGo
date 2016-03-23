@@ -4,3 +4,5 @@ src/main/diff.out
 src/mapreduce/out
 
 src/mapreduce/824-mrinput.txt
+
+src/pbservice/out

@@ -22,7 +22,6 @@ type PutAppendArgs struct {
 	Op      string
 	Id      int64
 	AckedId int64
-	Me      string
 }
 
 type PutAppendReply struct {
@@ -35,7 +34,6 @@ type GetArgs struct {
 	// By Yan
 	Id      int64
 	AckedId int64
-	Me      string
 }
 
 type GetReply struct {

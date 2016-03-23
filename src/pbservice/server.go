@@ -38,7 +38,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	//log.Printf("Server Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
+	//log.Printf("Server Get %s args.key %s\n", pb.me, args.Key)
 	//log.Printf("Server Get %s %s\n", pb.curView.Primary, pb.curView.Backup)
 	//log.Printf("id is %d", args.Id)
 	if pb.me != pb.curView.Primary {
@@ -70,11 +70,15 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 		succeed := <-c
 		if !succeed {
-			//its failed because client is primary
+			time.Sleep(viewservice.PingInterval)
+			//its failed could because client is primary
 			vx, _ := pb.vs.Get()
 			pb.curView = vx
 			if pb.curView.Primary != pb.me {
 				return errors.New(ErrWrongServer)
+			}
+			if pb.curView.Backup == "" {
+				break
 			}
 		} else {
 			break
@@ -91,7 +95,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
-	//log.Printf("PutAppend\n")
+	//fmt.Printf("PutAppend\n")
 	if pb.me != pb.curView.Primary {
 		return errors.New(ErrWrongServer)
 	}
@@ -115,7 +119,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	}
 
 	pb.lastPutAppendId[args.Id] = time.Now()
-	//log.Printf("Server PutAppend curView.Backup is %s", pb.curView.Backup)
+	//fmt.Printf("Server PutAppend curView.Backup is %s\n", pb.curView.Backup)
 
 	var replyU PutAppendReply
 	c := make(chan bool, 1)
@@ -123,22 +127,31 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		if pb.curView.Backup == "" {
 			break
 		}
+		//fmt.Printf("Server PutAppend 1\n")
 		go func() {
 			c <- call(pb.curView.Backup, "PBServer.ForwardPutAppend", args, &replyU)
 		}()
+		//fmt.Printf("Server PutAppend 2\n")
 		succeed := <-c
+		//fmt.Printf("Server PutAppend 3\n")
 		if !succeed {
+			time.Sleep(viewservice.PingInterval)
 			//its failed could because client is primary
 			vx, _ := pb.vs.Get()
 			pb.curView = vx
 			if pb.curView.Primary != pb.me {
+				//fmt.Printf("Server PutAppend error return\n")
 				return errors.New(ErrWrongServer)
+			}
+			if pb.curView.Backup == "" {
+				//log.Printf("Server PutAppend no backup\n")
+				break
 			}
 		} else {
 			break
 		}
 	}
-	//log.Printf("Server PutAppend finished\n")
+	//fmt.Printf("Server PutAppend finished\n")
 
 	//delete(pb.lastPutAppendId, args.AckedId)
 	reply.Err = OK
@@ -153,7 +166,7 @@ func (pb *PBServer) ForwardGet(args *GetArgs, reply *GetReply) error {
 
 	//log.Printf("Forward Get\n")
 	//log.Printf("Server Forward Get %s %d args.key %s\n", pb.me, pb.viewConnected, args.Key)
-	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary || args.Me != pb.curView.Primary {
+	if pb.me != pb.curView.Backup || pb.me == pb.curView.Primary {
 		return errors.New(ErrWrongServer)
 	}
 
@@ -242,10 +255,7 @@ func (pb *PBServer) tick() {
 
 	// Your code here.
 	// By Yan
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
-
-	//log.Printf("%s tick", pb.curView.Primary)
+	//log.Printf("%s tick", pb.me)
 
 	vx, err := pb.vs.Ping(pb.curView.Viewnum)
 	if err != nil {
@@ -257,6 +267,9 @@ func (pb *PBServer) tick() {
 	//log.Printf("vx Viewnum is %d", vx.Viewnum)
 
 	if pb.me == vx.Primary && pb.curView.Backup != vx.Backup && vx.Backup != "" {
+		pb.mu.Lock()
+		defer pb.mu.Unlock()
+
 		pb.curView = vx
 
 		var args ReplicateAllArgs
@@ -276,7 +289,7 @@ func (pb *PBServer) tick() {
 			args.LastPutAppendId[k] = v
 		}
 
-		log.Printf("call ReplicateAll")
+		//log.Printf("call ReplicateAll")
 
 		//log.Printf("Server tick curView.Backup is %s", pb.curView.Backup)
 
@@ -293,13 +306,17 @@ func (pb *PBServer) tick() {
 					return
 				}
 			} else {
-				log.Printf("Replication done\n")
+				//log.Printf("Replication done\n")
 				pb.ackedReplicateAllId = args.Id
 				return
 			}
 		}
+	} else if pb.curView != vx {
+		pb.mu.Lock()
+		defer pb.mu.Unlock()
+
+		pb.curView = vx
 	}
-	pb.curView = vx
 }
 
 // tell the server to shut itself down.

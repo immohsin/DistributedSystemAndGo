@@ -7,10 +7,10 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
-//import (
-//	"log"
+import (
+//"log"
 //	"time"
-//)
+)
 
 type Clerk struct {
 	vs *viewservice.Clerk
@@ -88,6 +88,8 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
+	//fmt.Printf("Client Get\n")
+
 	if ck.curView.Primary == "" {
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
@@ -100,11 +102,15 @@ func (ck *Clerk) Get(key string) string {
 		go func() {
 			c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
 		}()
+		//fmt.Printf("Client Get block\n")
 		succeed := <-c
+		//fmt.Printf("Client Get unblock\n")
 		if succeed == false {
+			//fmt.Printf("Client Get failed\n")
 			vx, _ := ck.vs.Get()
 			ck.curView = vx
 		} else {
+			//fmt.Printf("Client Get succeed\n")
 			return reply.Value
 		}
 	}
