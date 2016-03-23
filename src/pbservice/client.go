@@ -7,10 +7,10 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
-import (
-	"log"
-	"time"
-)
+//import (
+//	"log"
+//	"time"
+//)
 
 type Clerk struct {
 	vs *viewservice.Clerk
@@ -88,55 +88,24 @@ func (ck *Clerk) Get(key string) string {
 	var args GetArgs
 	var reply GetReply
 
-	log.Printf("Get curView.Primary is %s", ck.curView.Primary)
-
 	if ck.curView.Primary == "" {
-		//log.Printf("Get no Primary server 1\n")
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
 	}
 
 	args.Key = key
 	args.Id = nrand()
-	log.Printf("id is %d", args.Id)
-	c := make(chan GetRes, 1)
-	lastPrimary := ""
+	c := make(chan bool, 1)
 	for {
-		if ck.curView.Primary != lastPrimary {
-			log.Printf("Get has Primary server %s\n", ck.curView.Primary)
-			lastPrimary = ck.curView.Primary
-			server := ck.curView.Primary
-			argsR := args
-			replyR := reply
-			go func() {
-				var res GetRes
-				res.Succeed = call(server, "PBServer.Get", &argsR, &replyR)
-				res.Reply = replyR
-				c <- res
-			}()
+		go func() {
+			c <- call(ck.curView.Primary, "PBServer.Get", &args, &reply)
+		}()
+		succeed := <-c
+		if succeed == false {
+			vx, _ := ck.vs.Get()
+			ck.curView = vx
 		} else {
-			//log.Printf("Get no Primary server 2\n")
-		}
-		select {
-		case res := <-c:
-			if res.Succeed == false {
-				log.Printf("get failed")
-				vx, _ := ck.vs.Get()
-				ck.curView = vx
-			} else {
-				log.Printf("reply.Me is %s", res.Reply.Me)
-				log.Printf("reply.Value is %s", res.Reply.Value)
-				if res.Reply.Me != ck.curView.Primary {
-					continue
-				}
-				return res.Reply.Value
-			}
-			//case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-			//	log.Printf("Get expired\n")
-			//	log.Printf("cur primary is %s", ck.curView.Primary)
-			//	vx, _ := ck.vs.Get()
-			//	ck.curView = vx
-			//	log.Printf("cur primary is %s", ck.curView.Primary)
+			return reply.Value
 		}
 	}
 }
@@ -151,14 +120,10 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	var args PutAppendArgs
 	var reply PutAppendReply
 
-	log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
-
 	if ck.curView.Primary == "" {
 		vx, _ := ck.vs.Get()
 		ck.curView = vx
 	}
-
-	log.Printf("PutAppend curView.Primary is %s", ck.curView.Primary)
 
 	args.Key = key
 	args.Value = value
@@ -167,26 +132,16 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.AckedId = ck.ackedPutAppendId
 	c := make(chan bool, 1)
 	for {
-		if ck.curView.Primary != "" {
-			go func() {
-				c <- call(ck.curView.Primary, "PBServer.PutAppend", &args, &reply)
-			}()
-		} else {
-			log.Printf("PutAppend no Primary server\n")
-		}
-		select {
-		case succeed := <-c:
-			if succeed == false {
-				vx, _ := ck.vs.Get()
-				ck.curView = vx
-			} else {
-				ck.ackedPutAppendId = args.Id
-				return
-			}
-		case <-time.After(viewservice.PingInterval * viewservice.DeadPings):
-			log.Printf("PutAppend expired\n")
+		go func() {
+			c <- call(ck.curView.Primary, "PBServer.PutAppend", &args, &reply)
+		}()
+		succeed := <-c
+		if succeed == false {
 			vx, _ := ck.vs.Get()
 			ck.curView = vx
+		} else {
+			//ck.ackedPutAppendId = args.Id
+			return
 		}
 	}
 }

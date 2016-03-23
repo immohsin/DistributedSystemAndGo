@@ -41,7 +41,6 @@ type GetArgs struct {
 type GetReply struct {
 	Err   Err
 	Value string
-	Me    string
 }
 
 // Your RPC definitions here.
@@ -58,9 +57,4 @@ type ReplicateAllArgs struct {
 
 type ReplicateAllReply struct {
 	Err Err
-}
-
-type GetRes struct {
-	Succeed bool
-	Reply   GetReply
 }
